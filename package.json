@@ -1,0 +1,55 @@
+{
+  "name": "playwright-ci-failures",
+  "displayName": "Playwright CI Failures",
+  "description": "Browse Playwright e2e failures from GitHub Actions runs — error, screenshot, and video — without downloading artifacts by hand.",
+  "version": "0.1.0",
+  "publisher": "zeb",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Testing",
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "pwci.show",
+        "title": "Show CI Failures",
+        "category": "Playwright CI"
+      }
+    ],
+    "configuration": {
+      "title": "Playwright CI Failures",
+      "properties": {
+        "pwci.repo": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "`owner/repo` override. Empty = detect from the workspace's `origin` git remote."
+        },
+        "pwci.workflow": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Workflow file name (e.g. `deploy.yml`) to filter runs by. Empty = all workflows."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.6.0"
+  }
+}
