@@ -49,6 +49,22 @@ class Panel {
         this.panel.webview.html = this.html();
         this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
         this.panel.webview.onDidReceiveMessage((m) => this.onMessage(m), null, this.disposables);
+
+        // Dev convenience: hot-reload the webview whenever media/ changes, so
+        // UI tweaks (main.js / main.css) show up on save without Cmd+R.
+        if (this.context.extensionMode === vscode.ExtensionMode.Development) {
+            const mediaPath = vscode.Uri.joinPath(this.context.extensionUri, 'media').fsPath;
+            let timer: NodeJS.Timeout | undefined;
+            const watcher = fs.watch(mediaPath, () => {
+                if (timer) {
+                    clearTimeout(timer);
+                }
+                timer = setTimeout(() => {
+                    this.panel.webview.html = this.html();
+                }, 100);
+            });
+            this.disposables.push(new vscode.Disposable(() => watcher.close()));
+        }
     }
 
     private async onMessage(m: any) {
