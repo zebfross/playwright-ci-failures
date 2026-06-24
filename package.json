@@ -3,7 +3,7 @@
   "displayName": "Playwright CI Failures",
   "description": "Browse Playwright e2e failures from GitHub Actions runs — error, screenshot, and video — without downloading artifacts by hand.",
   "version": "0.1.0",
-  "publisher": "zeb",
+  "publisher": "zebfross",
   "license": "MIT",
   "repository": {
     "type": "git",
