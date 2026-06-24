@@ -35,15 +35,32 @@ Then press **F5** in VS Code to launch an Extension Development Host, open a rep
 that has Playwright CI, and run **"Playwright CI: Show CI Failures"** from the
 Command Palette.
 
-## Package / share
+## Package, install & publish
+
+All commands are npm scripts (no global installs needed):
 
 ```bash
-npm install -g @vscode/vsce
-vsce package           # produces playwright-ci-failures-0.1.0.vsix
+npm run package         # build the .vsix (playwright-ci-failures-X.Y.Z.vsix)
+npm run install:local   # package + install into your local VS Code (--force)
+npm run publish         # publish current version to the Marketplace (needs auth)
 ```
 
-Share the `.vsix` (Extensions panel → ⋯ → "Install from VSIX…") or publish it to
-the Marketplace.
+**Update your local install** after changes: `npm run install:local`, then reload
+VS Code. Or share the `.vsix` (Extensions panel → ⋯ → "Install from VSIX…").
+
+**Publish manually:** `vsce login zebfross` once (or set `VSCE_PAT` env), then
+`npm run publish`.
+
+**Auto-publish (CI):** add a repo secret **`VSCE_PAT`** (Azure DevOps PAT with
+*Marketplace → Manage* scope), then release with:
+
+```bash
+npm version patch        # bumps package.json, commits, tags vX.Y.Z
+git push --follow-tags   # pushing the tag triggers .github/workflows/release.yml
+```
+
+The workflow publishes to the Marketplace and attaches the `.vsix` to a GitHub
+release. Once published, installed copies **auto-update** from the Marketplace.
 
 ## Settings
 
