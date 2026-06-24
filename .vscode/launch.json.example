@@ -1,4 +1,5 @@
 {
+  "//": "Copy this to launch.json (gitignored) and set PWCI_REPO to the repo whose CI you want the dev host to target.",
   "version": "0.2.0",
   "configurations": [
     {
@@ -9,8 +10,8 @@
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: watch",
       "env": {
-        "//": "Dev-only: which repo the dev-host extension targets, so you don't need that folder open. Change to test another repo.",
-        "PWCI_REPO": "zebfross/tradelineworks"
+        "//": "Dev-only: which repo the dev-host extension targets, so you don't need that folder open.",
+        "PWCI_REPO": "owner/repo"
       }
     }
   ]
