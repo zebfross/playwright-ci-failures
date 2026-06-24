@@ -157,10 +157,17 @@ function renderFailures() {
         if (f.error) card.append(el('pre', { class: 'err' }, f.error));
         const media = el('div', { class: 'media' });
         if (f.screenshot) media.append(el('img', { src: f.screenshot, loading: 'lazy' }));
-        if (f.video) media.append(el('video', { src: f.video, controls: '', preload: 'metadata' }));
+        if (f.video) {
+            const video = el('video', { src: f.video, controls: '', preload: 'metadata' });
+            const overlay = el('button', { class: 'video-overlay', onclick: () => f.videoFile && vscode.postMessage({ type: 'openFile', path: f.videoFile }) }, '▶ Open video');
+            // The webview can't always decode webm — surface a centered button
+            // when it errors (or never loads) so it's easy to find.
+            video.addEventListener('error', () => overlay.classList.add('show'));
+            setTimeout(() => { if (video.readyState === 0) overlay.classList.add('show'); }, 1500);
+            media.append(el('div', { class: 'video-wrap' }, video, overlay));
+        }
         if (f.screenshot || f.video) card.append(media);
         const actions = el('div', { class: 'actions' });
-        if (f.videoFile) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openFile', path: f.videoFile }) }, '🎞 Open video'));
         if (f.screenshotFile) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openFile', path: f.screenshotFile }) }, '🖼 Open screenshot'));
         if (f.trace) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openTrace', path: f.trace }) }, '▶ Open trace'));
         card.append(actions);
