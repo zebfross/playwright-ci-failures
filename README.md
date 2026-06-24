@@ -24,6 +24,12 @@ The extension reads two artifacts that your e2e job should upload:
 - `playwright-test-results-*` — the `test-results/` directory (screenshots, videos,
   traces). Upload it with `if: always()`.
 
+If a run deploys to several environments (e.g. `…-dev` runs the full suite and
+`…-prod` runs only a smoke subset), upload a `playwright-json-<env>` +
+`playwright-test-results-<env>` pair per environment. The extension downloads
+**every** pair, merges the results, and tags each one with its `<env>` label.
+Re-run duplicates are de-duped (newest wins).
+
 ## Develop / run it
 
 ```bash

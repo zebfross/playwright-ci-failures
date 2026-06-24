@@ -71,6 +71,7 @@ button.small { padding: 2px 8px; font-size: 11px; }
 .badge.running { background: #d2992222; color: #d29922; border: 1px solid #d2992255; }
 .badge.other { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
 .badge.proj { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); text-transform: none; }
+.badge.env { background: #1f6feb22; color: #58a6ff; border: 1px solid #1f6feb55; text-transform: none; }
 
 /* Failures */
 .failures { padding: 14px; display: flex; flex-direction: column; gap: 16px; }

@@ -19,6 +19,7 @@ export interface Run {
 }
 
 export interface Failure {
+    env: string; // deploy environment / shard the result came from (e.g. "dev", "prod")
     file: string;
     title: string;
     project: string;
@@ -143,48 +144,90 @@ export async function getRunFailures(
     }
 
     const runDir = path.join(workRoot, `run-${runId}`);
-    const jsonDir = path.join(runDir, 'json');
-    const mediaDir = path.join(runDir, 'media');
-    const marker = path.join(runDir, '.complete');
+    // v2 = per-environment subdir layout. Bumping the marker name invalidates
+    // any run dirs downloaded by the old single-artifact layout so they get
+    // re-fetched into runDir/<env>/{json,media} instead of being misparsed.
+    const marker = path.join(runDir, '.complete-v2');
 
     // Reuse a previously-downloaded run dir across sessions; only (re)download
     // when it's missing/incomplete or a refresh was requested.
     if (force || !fs.existsSync(marker)) {
         fs.rmSync(runDir, { recursive: true, force: true });
-        fs.mkdirSync(jsonDir, { recursive: true });
-        fs.mkdirSync(mediaDir, { recursive: true });
+        fs.mkdirSync(runDir, { recursive: true });
 
         const { artifacts } = await api<{ artifacts: Artifact[] }>(
             token,
             `${API}/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`,
         );
-        const jsonArt = artifacts.find((a) => /playwright-json/i.test(a.name));
-        const mediaArt = artifacts.find((a) => /playwright-test-results/i.test(a.name));
 
-        if (mediaArt) {
-            await downloadArtifact(token, owner, repo, mediaArt.id, mediaDir);
+        // A run can deploy to several environments (e.g. dev runs the full e2e
+        // suite, prod runs only @prod-safe), each uploading its own
+        // playwright-json-<env> + playwright-test-results-<env> pair. Re-runs
+        // also produce duplicate names. Group by the <env> suffix and keep the
+        // newest (highest id) of each kind so we fetch EVERY environment's media.
+        const groups = new Map<string, { json?: Artifact; media?: Artifact }>();
+        const add = (kind: 'json' | 'media', prefix: RegExp, a: Artifact) => {
+            const env = a.name.replace(prefix, '').replace(/^[-_]+/, '') || 'default';
+            const g = groups.get(env) ?? {};
+            if (!g[kind] || a.id > g[kind]!.id) {
+                g[kind] = a;
+                groups.set(env, g);
+            }
+        };
+        for (const a of artifacts) {
+            if (/playwright-json/i.test(a.name)) {
+                add('json', /playwright-json/i, a);
+            } else if (/playwright-test-results/i.test(a.name)) {
+                add('media', /playwright-test-results/i, a);
+            }
         }
-        if (jsonArt) {
-            await downloadArtifact(token, owner, repo, jsonArt.id, jsonDir);
+
+        // Download each environment's artifacts into its own subdir so paths
+        // from different suites can't collide.
+        for (const [env, g] of groups) {
+            const jsonDir = path.join(runDir, env, 'json');
+            const mediaDir = path.join(runDir, env, 'media');
+            fs.mkdirSync(jsonDir, { recursive: true });
+            fs.mkdirSync(mediaDir, { recursive: true });
+            if (g.media) {
+                await downloadArtifact(token, owner, repo, g.media.id, mediaDir);
+            }
+            if (g.json) {
+                await downloadArtifact(token, owner, repo, g.json.id, jsonDir);
+            }
         }
         fs.writeFileSync(marker, new Date().toISOString());
     }
 
-    const failures = parseRunDir(jsonDir, mediaDir);
+    // Parse every environment subdir we downloaded and merge.
+    const failures: Failure[] = [];
+    for (const env of fs.readdirSync(runDir)) {
+        const envDir = path.join(runDir, env);
+        if (!fs.statSync(envDir).isDirectory()) {
+            continue;
+        }
+        failures.push(...parseRunDir(env, path.join(envDir, 'json'), path.join(envDir, 'media')));
+    }
+    // Failures first, then grouped by env, for a stable display order.
+    failures.sort(
+        (a, b) =>
+            Number(b.status !== 'passed') - Number(a.status !== 'passed') ||
+            a.env.localeCompare(b.env),
+    );
     failuresCache.set(runId, failures);
     return failures;
 }
 
-function parseRunDir(jsonDir: string, mediaDir: string): Failure[] {
+function parseRunDir(env: string, jsonDir: string, mediaDir: string): Failure[] {
     const jsonPath = findFile(jsonDir, (f) => f.endsWith('.json'));
     if (jsonPath) {
-        return failuresFromReport(JSON.parse(fs.readFileSync(jsonPath, 'utf8')), mediaDir);
+        return failuresFromReport(env, JSON.parse(fs.readFileSync(jsonPath, 'utf8')), mediaDir);
     }
     // Older run (before the JSON reporter) — surface whatever media exists.
-    return failuresFromMedia(mediaDir);
+    return failuresFromMedia(env, mediaDir);
 }
 
-function failuresFromReport(report: any, mediaDir: string): Failure[] {
+function failuresFromReport(env: string, report: any, mediaDir: string): Failure[] {
     const out: Failure[] = [];
     const visitFile = (fileSuite: any) => {
         const file: string = fileSuite.title ?? '';
@@ -197,6 +240,7 @@ function failuresFromReport(report: any, mediaDir: string): Failure[] {
                     }
                     const atts = result.attachments ?? [];
                     out.push({
+                        env,
                         file,
                         title: [...prefix, spec.title].filter(Boolean).join(' › '),
                         project: test.projectName ?? '',
@@ -240,7 +284,7 @@ function resolveAttachment(atts: any[], name: string, mediaDir: string): string 
     return findFile(mediaDir, (f) => path.basename(f) === path.basename(norm));
 }
 
-function failuresFromMedia(mediaDir: string): Failure[] {
+function failuresFromMedia(env: string, mediaDir: string): Failure[] {
     const out: Failure[] = [];
     if (!fs.existsSync(mediaDir)) {
         return out;
@@ -262,6 +306,7 @@ function failuresFromMedia(mediaDir: string): Failure[] {
             continue;
         }
         out.push({
+            env,
             file: '',
             title: dir,
             project: '',
