@@ -7,7 +7,11 @@
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
-      "preLaunchTask": "npm: watch"
+      "preLaunchTask": "npm: watch",
+      "env": {
+        "//": "Dev-only: which repo the dev-host extension targets, so you don't need that folder open. Change to test another repo.",
+        "PWCI_REPO": "zebfross/tradelineworks"
+      }
     }
   ]
 }

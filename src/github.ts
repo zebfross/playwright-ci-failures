@@ -40,6 +40,14 @@ export function detectRepo(): { owner: string; repo: string } | undefined {
         const [owner, repo] = override.split('/');
         return { owner, repo };
     }
+    // Env fallback — handy for the Extension Development Host (set via launch.json),
+    // so you don't have to open the target repo's folder (VS Code won't open the
+    // same folder in two windows anyway).
+    const envRepo = process.env.PWCI_REPO;
+    if (envRepo && envRepo.includes('/')) {
+        const [owner, repo] = envRepo.split('/');
+        return { owner, repo };
+    }
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
         try {
             const url = cp
