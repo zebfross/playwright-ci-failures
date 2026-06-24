@@ -10,6 +10,8 @@ downloading and unzipping artifacts by hand.
   `origin` git remote).
 - Pick a run → it downloads that run's Playwright artifacts in the background and
   shows every failure with its error message, screenshot, and video inline.
+- Filter the failures with the search box (`/` or `⌘F` to focus, `Esc` to
+  clear) — matches title, file, project, and env.
 - "Open trace" launches the Playwright Trace Viewer (`npx playwright show-trace`).
 - Uses VS Code's built-in **GitHub sign-in** — no token or `gh` CLI to configure.
 

@@ -236,7 +236,7 @@ function renderFailures() {
     const search = el('input', {
         class: 'search',
         type: 'search',
-        placeholder: 'Filter tests…  (title · file · project · env)',
+        placeholder: 'Filter tests…  ( / or ⌘F · Esc clears )',
         value: state.query || '',
         oninput: (e) => { state.query = e.target.value; paint(); },
         // Esc clears the filter.
@@ -256,6 +256,23 @@ function renderFailures() {
     app.append(grid);
     paint();
 }
+
+// Keyboard: "/" (GitHub-style) or ⌘/Ctrl+F jumps to the filter box in the
+// failures view; Esc inside the box is handled on the input itself.
+document.addEventListener('keydown', (e) => {
+    if (state.view !== 'failures') return;
+    const search = document.querySelector('.search');
+    if (!search) return;
+    const ae = document.activeElement;
+    const typing = ae && /^(input|textarea)$/i.test(ae.tagName);
+    const slash = e.key === '/' && !typing;
+    const cmdF = (e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F');
+    if (slash || cmdF) {
+        e.preventDefault();
+        search.focus();
+        search.select();
+    }
+});
 
 vscode.postMessage({ type: 'ready' });
 render();
