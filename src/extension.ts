@@ -135,8 +135,10 @@ class Panel {
 
     private html(): string {
         const w = this.panel.webview;
-        const css = w.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'main.css'));
-        const js = w.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'main.js'));
+        // ?v= busts the webview's resource cache so hot-reload picks up edits.
+        const ver = Date.now();
+        const css = `${w.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'main.css'))}?v=${ver}`;
+        const js = `${w.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'main.js'))}?v=${ver}`;
         const nonce = String(Math.floor((Date.now() % 1e9) + 1)) + 'abc';
         return `<!DOCTYPE html>
 <html lang="en">
