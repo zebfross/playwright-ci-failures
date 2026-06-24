@@ -12,16 +12,31 @@
     "Testing",
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:pwciRuns"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
+      { "command": "pwci.show", "title": "Show CI Failures", "category": "Playwright CI" },
+      { "command": "pwci.refreshRuns", "title": "Refresh Runs", "category": "Playwright CI", "icon": "$(refresh)" }
+    ],
+    "views": {
+      "scm": [
+        { "id": "pwciRuns", "name": "Playwright CI Failures" }
+      ]
+    },
+    "viewsWelcome": [
       {
-        "command": "pwci.show",
-        "title": "Show CI Failures",
-        "category": "Playwright CI"
+        "view": "pwciRuns",
+        "contents": "Browse Playwright e2e failures from your GitHub Actions runs.\n[Show CI Failures](command:pwci.show)"
       }
     ],
+    "menus": {
+      "view/title": [
+        { "command": "pwci.refreshRuns", "when": "view == pwciRuns", "group": "navigation" }
+      ]
+    },
     "configuration": {
       "title": "Playwright CI Failures",
       "properties": {

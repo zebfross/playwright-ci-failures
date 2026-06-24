@@ -29,9 +29,9 @@ export interface Failure {
     trace?: string;
 }
 
-export async function getToken(): Promise<string> {
-    const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
-    return session.accessToken;
+export async function getToken(createIfNone = true): Promise<string | undefined> {
+    const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone });
+    return session?.accessToken;
 }
 
 export function detectRepo(): { owner: string; repo: string } | undefined {

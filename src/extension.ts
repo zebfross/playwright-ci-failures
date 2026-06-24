@@ -4,8 +4,12 @@ import * as path from 'path';
 import * as gh from './github';
 
 export function activate(context: vscode.ExtensionContext) {
+    const runsProvider = new RunsProvider();
     context.subscriptions.push(
+        vscode.window.registerTreeDataProvider('pwciRuns', runsProvider),
         vscode.commands.registerCommand('pwci.show', () => Panel.show(context)),
+        vscode.commands.registerCommand('pwci.refreshRuns', () => runsProvider.refresh()),
+        vscode.commands.registerCommand('pwci.openRun', (runId: number) => Panel.openRun(context, runId)),
     );
 }
 
@@ -13,9 +17,64 @@ export function deactivate() {
     /* nothing to clean up */
 }
 
+/** The Source Control sidebar tree that lists recent workflow runs. */
+class RunsProvider implements vscode.TreeDataProvider<gh.Run> {
+    private readonly _onDidChange = new vscode.EventEmitter<void>();
+    readonly onDidChangeTreeData = this._onDidChange.event;
+
+    refresh(): void {
+        this._onDidChange.fire();
+    }
+
+    getTreeItem(run: gh.Run): vscode.TreeItem {
+        const item = new vscode.TreeItem(run.display_title || run.name);
+        const concl = run.status !== 'completed' ? run.status : run.conclusion || '—';
+        item.description = `#${run.run_number} · ${run.head_branch} · ${concl}`;
+        item.tooltip = `${run.name}\n${concl} · ${run.head_branch}\n${run.created_at}`;
+        item.iconPath = iconFor(run);
+        item.command = { command: 'pwci.openRun', title: 'Open run', arguments: [run.id] };
+        return item;
+    }
+
+    async getChildren(element?: gh.Run): Promise<gh.Run[]> {
+        if (element) {
+            return [];
+        }
+        const repo = gh.detectRepo();
+        if (!repo) {
+            return [];
+        }
+        // Silent token — don't pop a sign-in prompt just for opening the sidebar.
+        const token = await gh.getToken(false);
+        if (!token) {
+            return [];
+        }
+        try {
+            return await gh.listRuns(token, repo.owner, repo.repo);
+        } catch {
+            return [];
+        }
+    }
+}
+
+function iconFor(run: gh.Run): vscode.ThemeIcon {
+    if (run.status !== 'completed') {
+        return new vscode.ThemeIcon('sync~spin');
+    }
+    if (run.conclusion === 'success') {
+        return new vscode.ThemeIcon('pass', new vscode.ThemeColor('testing.iconPassed'));
+    }
+    if (run.conclusion === 'failure') {
+        return new vscode.ThemeIcon('error', new vscode.ThemeColor('testing.iconFailed'));
+    }
+    return new vscode.ThemeIcon('circle-outline');
+}
+
 class Panel {
     private static current: Panel | undefined;
     private readonly disposables: vscode.Disposable[] = [];
+    private ready = false;
+    private pendingRunId?: number;
 
     static show(context: vscode.ExtensionContext) {
         if (Panel.current) {
@@ -39,6 +98,22 @@ class Panel {
             },
         );
         Panel.current = new Panel(panel, context, workRoot);
+    }
+
+    /** Open (or focus) the panel and navigate it to a specific run. */
+    static openRun(context: vscode.ExtensionContext, runId: number) {
+        Panel.show(context);
+        Panel.current?.requestRun(runId);
+    }
+
+    private requestRun(runId: number) {
+        this.panel.reveal();
+        if (this.ready) {
+            this.post({ type: 'openRunExternal', runId });
+        } else {
+            // Webview not loaded yet — flush once it signals 'ready'.
+            this.pendingRunId = runId;
+        }
     }
 
     private constructor(
@@ -70,7 +145,12 @@ class Panel {
     private async onMessage(m: any) {
         try {
             if (m.type === 'ready') {
+                this.ready = true;
                 await this.loadRuns();
+                if (this.pendingRunId !== undefined) {
+                    this.post({ type: 'openRunExternal', runId: this.pendingRunId });
+                    this.pendingRunId = undefined;
+                }
             } else if (m.type === 'openRun') {
                 await this.loadFailures(m.runId, !!m.force);
             } else if (m.type === 'openTrace') {
@@ -104,6 +184,10 @@ class Panel {
         }
         this.post({ type: 'status', message: `Loading runs for ${repo.owner}/${repo.repo}…` });
         const token = await gh.getToken();
+        if (!token) {
+            this.post({ type: 'error', message: 'GitHub sign-in is required.' });
+            return;
+        }
         const runs = await gh.listRuns(token, repo.owner, repo.repo);
         this.post({
             type: 'runs',
@@ -111,6 +195,8 @@ class Panel {
             runs,
             dev: this.context.extensionMode === vscode.ExtensionMode.Development,
         });
+        // Keep the sidebar tree in sync (e.g. populate it after the first sign-in).
+        void vscode.commands.executeCommand('pwci.refreshRuns');
     }
 
     private async loadFailures(runId: number, force = false) {
@@ -119,6 +205,9 @@ class Panel {
             return;
         }
         const token = await gh.getToken();
+        if (!token) {
+            return;
+        }
         const failures = await gh.getRunFailures(token, repo.owner, repo.repo, runId, this.workRoot, force);
         const mapped = failures.map((f) => ({
             ...f,

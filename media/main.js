@@ -65,6 +65,9 @@ window.addEventListener('message', (e) => {
             state.view = 'runs';
             render();
             break;
+        case 'openRunExternal':
+            openRun(m.runId); // navigation request from the SCM tree
+            break;
         case 'failures':
             // Always cache; only switch into the view if the user is still
             // waiting on this run (otherwise they navigated away — cache silently).
