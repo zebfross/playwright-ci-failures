@@ -144,10 +144,11 @@ export async function getRunFailures(
     }
 
     const runDir = path.join(workRoot, `run-${runId}`);
-    // v2 = per-environment subdir layout. Bumping the marker name invalidates
-    // any run dirs downloaded by the old single-artifact layout so they get
-    // re-fetched into runDir/<env>/{json,media} instead of being misparsed.
-    const marker = path.join(runDir, '.complete-v2');
+    // v3 layout: runDir/<env>/a<attempt>/{json,media}. A workflow re-run uploads
+    // a fresh artifact pair per env (same name, higher id), so we keep EVERY
+    // attempt and merge per test below — otherwise a failure that was retried
+    // green would be hidden behind the newer passing attempt's media.
+    const marker = path.join(runDir, '.complete-v3');
 
     // Reuse a previously-downloaded run dir across sessions; only (re)download
     // when it's missing/incomplete or a refresh was requested.
@@ -161,52 +162,64 @@ export async function getRunFailures(
         );
 
         // A run can deploy to several environments (e.g. dev runs the full e2e
-        // suite, prod runs only @prod-safe), each uploading its own
-        // playwright-json-<env> + playwright-test-results-<env> pair. Re-runs
-        // also produce duplicate names. Group by the <env> suffix and keep the
-        // newest (highest id) of each kind so we fetch EVERY environment's media.
-        const groups = new Map<string, { json?: Artifact; media?: Artifact }>();
-        const add = (kind: 'json' | 'media', prefix: RegExp, a: Artifact) => {
-            const env = a.name.replace(prefix, '').replace(/^[-_]+/, '') || 'default';
-            const g = groups.get(env) ?? {};
-            if (!g[kind] || a.id > g[kind]!.id) {
-                g[kind] = a;
+        // suite, prod runs only @prod-safe), each uploading a
+        // playwright-json-<env> + playwright-test-results-<env> pair. Group by
+        // the <env> suffix, collecting every attempt's pair.
+        const groups = new Map<string, { jsons: Artifact[]; medias: Artifact[] }>();
+        const bucket = (env: string) => {
+            let g = groups.get(env);
+            if (!g) {
+                g = { jsons: [], medias: [] };
                 groups.set(env, g);
             }
+            return g;
         };
         for (const a of artifacts) {
             if (/playwright-json/i.test(a.name)) {
-                add('json', /playwright-json/i, a);
+                bucket(a.name.replace(/playwright-json/i, '').replace(/^[-_]+/, '') || 'default').jsons.push(a);
             } else if (/playwright-test-results/i.test(a.name)) {
-                add('media', /playwright-test-results/i, a);
+                bucket(a.name.replace(/playwright-test-results/i, '').replace(/^[-_]+/, '') || 'default').medias.push(a);
             }
         }
 
-        // Download each environment's artifacts into its own subdir so paths
-        // from different suites can't collide.
+        // Download each attempt (oldest id first = chronological) into its own
+        // subdir so media paths from different attempts can't collide.
         for (const [env, g] of groups) {
-            const jsonDir = path.join(runDir, env, 'json');
-            const mediaDir = path.join(runDir, env, 'media');
-            fs.mkdirSync(jsonDir, { recursive: true });
-            fs.mkdirSync(mediaDir, { recursive: true });
-            if (g.media) {
-                await downloadArtifact(token, owner, repo, g.media.id, mediaDir);
-            }
-            if (g.json) {
-                await downloadArtifact(token, owner, repo, g.json.id, jsonDir);
+            g.jsons.sort((x, y) => x.id - y.id);
+            g.medias.sort((x, y) => x.id - y.id);
+            const attempts = Math.max(g.jsons.length, g.medias.length);
+            for (let i = 0; i < attempts; i++) {
+                const jsonDir = path.join(runDir, env, `a${i}`, 'json');
+                const mediaDir = path.join(runDir, env, `a${i}`, 'media');
+                fs.mkdirSync(jsonDir, { recursive: true });
+                fs.mkdirSync(mediaDir, { recursive: true });
+                if (g.medias[i]) {
+                    await downloadArtifact(token, owner, repo, g.medias[i].id, mediaDir);
+                }
+                if (g.jsons[i]) {
+                    await downloadArtifact(token, owner, repo, g.jsons[i].id, jsonDir);
+                }
             }
         }
         fs.writeFileSync(marker, new Date().toISOString());
     }
 
-    // Parse every environment subdir we downloaded and merge.
+    // Parse each env's attempts (chronological) and merge per test, preferring
+    // the failing attempt so retried-green failures stay visible.
     const failures: Failure[] = [];
     for (const env of fs.readdirSync(runDir)) {
         const envDir = path.join(runDir, env);
         if (!fs.statSync(envDir).isDirectory()) {
             continue;
         }
-        failures.push(...parseRunDir(env, path.join(envDir, 'json'), path.join(envDir, 'media')));
+        const attemptDirs = fs
+            .readdirSync(envDir)
+            .filter((d) => /^a\d+$/.test(d))
+            .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+        const attempts = attemptDirs.map((d) =>
+            parseRunDir(env, path.join(envDir, d, 'json'), path.join(envDir, d, 'media')),
+        );
+        failures.push(...mergeAttempts(attempts));
     }
     // Failures first, then grouped by env, for a stable display order.
     failures.sort(
@@ -216,6 +229,37 @@ export async function getRunFailures(
     );
     failuresCache.set(runId, failures);
     return failures;
+}
+
+// Merge a test's results across workflow attempts (oldest first). A test that
+// failed then passed on a re-run is surfaced as its FAILED attempt (with the
+// failure video/error) and relabelled "flaky" — so retried-green failures stay
+// visible instead of being replaced by the later passing run.
+function mergeAttempts(attempts: Failure[][]): Failure[] {
+    if (attempts.length <= 1) {
+        return attempts[0] ?? [];
+    }
+    const byKey = new Map<string, { chosen: Failure; failed: boolean; passedLater: boolean }>();
+    for (const list of attempts) {
+        for (const f of list) {
+            const key = `${f.file}\n${f.title}\n${f.project}`;
+            const isFail = f.status !== 'passed';
+            const entry = byKey.get(key);
+            if (!entry) {
+                byKey.set(key, { chosen: f, failed: isFail, passedLater: false });
+            } else if (isFail) {
+                entry.chosen = f; // keep the latest failing attempt's media/error
+                entry.failed = true;
+            } else if (entry.failed) {
+                entry.passedLater = true; // a later attempt recovered → flaky
+            } else {
+                entry.chosen = f; // never failed → keep the latest pass
+            }
+        }
+    }
+    return [...byKey.values()].map(({ chosen, failed, passedLater }) =>
+        failed && passedLater ? { ...chosen, status: 'flaky' } : chosen,
+    );
 }
 
 function parseRunDir(env: string, jsonDir: string, mediaDir: string): Failure[] {

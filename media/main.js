@@ -194,7 +194,7 @@ function renderFailures() {
         const card = el('div', { class: 'card' });
         card.append(
             el('div', { class: 'card-head' },
-                el('span', { class: pass ? 'badge ok' : 'badge fail' }, f.status),
+                el('span', { class: f.status === 'passed' ? 'badge ok' : f.status === 'flaky' ? 'badge flaky' : 'badge fail' }, f.status),
                 f.env ? el('span', { class: 'badge env' }, f.env) : null,
                 f.project ? el('span', { class: 'badge proj' }, f.project) : null,
                 el('span', { class: 'card-title' }, f.title || '(untitled)'),

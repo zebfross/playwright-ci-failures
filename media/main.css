@@ -68,6 +68,7 @@ button.small { padding: 2px 8px; font-size: 11px; }
 }
 .badge.ok { background: #1f7a341a; color: #2ea043; border: 1px solid #2ea04355; }
 .badge.fail { background: #f851491a; color: #f85149; border: 1px solid #f8514955; }
+.badge.flaky { background: #d2992222; color: #d29922; border: 1px solid #d2992255; }
 .badge.running { background: #d2992222; color: #d29922; border: 1px solid #d2992255; }
 .badge.other { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
 .badge.proj { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); text-transform: none; }
