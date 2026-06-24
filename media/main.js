@@ -2,7 +2,20 @@
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 
-let state = { repo: '', runs: [], view: 'loading', runId: null, failures: [], note: 'Loading…' };
+let state = { repo: '', runs: [], view: 'loading', runId: null, failures: [], failuresByRun: {}, note: 'Loading…' };
+
+// Render a run's failures from the webview-side cache when we have them, so
+// going back-and-forth between runs is instant; otherwise ask the extension.
+function openRun(runId, force) {
+    if (!force && state.failuresByRun[runId]) {
+        state.runId = runId;
+        state.failures = state.failuresByRun[runId];
+        state.view = 'failures';
+        render();
+        return;
+    }
+    vscode.postMessage({ type: 'openRun', runId, force: !!force });
+}
 
 window.addEventListener('message', (e) => {
     const m = e.data;
@@ -30,6 +43,7 @@ window.addEventListener('message', (e) => {
         case 'failures':
             state.runId = m.runId;
             state.failures = m.failures;
+            state.failuresByRun[m.runId] = m.failures;
             state.view = 'failures';
             render();
             break;
@@ -91,7 +105,7 @@ function renderRuns() {
     const list = el('div', { class: 'runs' });
     for (const run of state.runs) {
         list.append(
-            el('div', { class: 'run', onclick: () => vscode.postMessage({ type: 'openRun', runId: run.id }) },
+            el('div', { class: 'run', onclick: () => openRun(run.id) },
                 el('span', { class: conclusionClass(run) }, run.status !== 'completed' ? run.status : (run.conclusion || '—')),
                 el('div', { class: 'run-main' },
                     el('div', { class: 'run-title' }, run.display_title || run.name),
@@ -109,6 +123,7 @@ function renderFailures() {
         el('div', { class: 'topbar' },
             el('button', { class: 'ghost', onclick: () => vscode.postMessage({ type: 'ready' }) }, '← Runs'),
             el('strong', {}, `${state.failures.length} failure${state.failures.length === 1 ? '' : 's'} · run #${state.runId}`),
+            el('button', { class: 'ghost small', onclick: () => openRun(state.runId, true) }, '↻ Refresh'),
         ),
     );
     if (state.failures.length === 0) {

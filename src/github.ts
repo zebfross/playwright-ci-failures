@@ -105,37 +105,67 @@ async function downloadArtifact(
     new AdmZip(buf).extractAllTo(destDir, true);
 }
 
+// Parsed failures per run id — a completed run's artifacts never change, so
+// this is safe to keep for the life of the session (bust it with `force`).
+const failuresCache = new Map<number, Failure[]>();
+
+export function clearFailuresCache(runId?: number) {
+    if (runId === undefined) {
+        failuresCache.clear();
+    } else {
+        failuresCache.delete(runId);
+    }
+}
+
 export async function getRunFailures(
     token: string,
     owner: string,
     repo: string,
     runId: number,
     workRoot: string,
+    force = false,
 ): Promise<Failure[]> {
-    const { artifacts } = await api<{ artifacts: Artifact[] }>(
-        token,
-        `${API}/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`,
-    );
-    const jsonArt = artifacts.find((a) => /playwright-json/i.test(a.name));
-    const mediaArt = artifacts.find((a) => /playwright-test-results/i.test(a.name));
-
-    const runDir = path.join(workRoot, `run-${runId}`);
-    fs.rmSync(runDir, { recursive: true, force: true });
-    const jsonDir = path.join(runDir, 'json');
-    const mediaDir = path.join(runDir, 'media');
-    fs.mkdirSync(jsonDir, { recursive: true });
-    fs.mkdirSync(mediaDir, { recursive: true });
-
-    if (mediaArt) {
-        await downloadArtifact(token, owner, repo, mediaArt.id, mediaDir);
+    if (!force && failuresCache.has(runId)) {
+        return failuresCache.get(runId)!;
     }
 
-    if (jsonArt) {
-        await downloadArtifact(token, owner, repo, jsonArt.id, jsonDir);
-        const jsonPath = findFile(jsonDir, (f) => f.endsWith('.json'));
-        if (jsonPath) {
-            return failuresFromReport(JSON.parse(fs.readFileSync(jsonPath, 'utf8')), mediaDir);
+    const runDir = path.join(workRoot, `run-${runId}`);
+    const jsonDir = path.join(runDir, 'json');
+    const mediaDir = path.join(runDir, 'media');
+    const marker = path.join(runDir, '.complete');
+
+    // Reuse a previously-downloaded run dir across sessions; only (re)download
+    // when it's missing/incomplete or a refresh was requested.
+    if (force || !fs.existsSync(marker)) {
+        fs.rmSync(runDir, { recursive: true, force: true });
+        fs.mkdirSync(jsonDir, { recursive: true });
+        fs.mkdirSync(mediaDir, { recursive: true });
+
+        const { artifacts } = await api<{ artifacts: Artifact[] }>(
+            token,
+            `${API}/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`,
+        );
+        const jsonArt = artifacts.find((a) => /playwright-json/i.test(a.name));
+        const mediaArt = artifacts.find((a) => /playwright-test-results/i.test(a.name));
+
+        if (mediaArt) {
+            await downloadArtifact(token, owner, repo, mediaArt.id, mediaDir);
         }
+        if (jsonArt) {
+            await downloadArtifact(token, owner, repo, jsonArt.id, jsonDir);
+        }
+        fs.writeFileSync(marker, new Date().toISOString());
+    }
+
+    const failures = parseRunDir(jsonDir, mediaDir);
+    failuresCache.set(runId, failures);
+    return failures;
+}
+
+function parseRunDir(jsonDir: string, mediaDir: string): Failure[] {
+    const jsonPath = findFile(jsonDir, (f) => f.endsWith('.json'));
+    if (jsonPath) {
+        return failuresFromReport(JSON.parse(fs.readFileSync(jsonPath, 'utf8')), mediaDir);
     }
     // Older run (before the JSON reporter) — surface whatever media exists.
     return failuresFromMedia(mediaDir);

@@ -56,7 +56,7 @@ class Panel {
             if (m.type === 'ready') {
                 await this.loadRuns();
             } else if (m.type === 'openRun') {
-                await this.loadFailures(m.runId);
+                await this.loadFailures(m.runId, !!m.force);
             } else if (m.type === 'openTrace') {
                 this.openTrace(m.path);
             } else if (m.type === 'openUrl' && m.url) {
@@ -83,14 +83,14 @@ class Panel {
         this.post({ type: 'runs', repo: `${repo.owner}/${repo.repo}`, runs });
     }
 
-    private async loadFailures(runId: number) {
+    private async loadFailures(runId: number, force = false) {
         const repo = gh.detectRepo();
         if (!repo) {
             return;
         }
         this.post({ type: 'loadingRun', runId });
         const token = await gh.getToken();
-        const failures = await gh.getRunFailures(token, repo.owner, repo.repo, runId, this.workRoot);
+        const failures = await gh.getRunFailures(token, repo.owner, repo.repo, runId, this.workRoot, force);
         const mapped = failures.map((f) => ({
             ...f,
             screenshot: this.uri(f.screenshot),
