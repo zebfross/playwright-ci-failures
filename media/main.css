@@ -9,7 +9,7 @@ body {
 }
 .muted { color: var(--vscode-descriptionForeground); }
 .error { color: var(--vscode-errorForeground); white-space: pre-wrap; }
-.center { padding: 40px; text-align: center; }
+.center { padding: 40px; text-align: center; white-space: pre-line; }
 
 button {
     font: inherit;

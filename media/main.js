@@ -2,19 +2,37 @@
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 
-let state = { repo: '', runs: [], view: 'loading', runId: null, failures: [], failuresByRun: {}, showAll: false, note: 'Loading…' };
+let state = { repo: '', runs: [], view: 'loading', runId: null, loadingRunId: null, failures: [], failuresByRun: {}, showAll: false, note: 'Loading…' };
 
-// Render a run's failures from the webview-side cache when we have them, so
-// going back-and-forth between runs is instant; otherwise ask the extension.
+// Back to the runs list — renders the already-loaded list instantly (no refetch).
+function showRuns() {
+    state.loadingRunId = null;
+    state.view = 'runs';
+    render();
+}
+
+// Open a run: instant from the webview cache; otherwise show a (navigable)
+// loading view and ask the extension to fetch in the background.
 function openRun(runId, force) {
     state.showAll = false; // start each run on failures-only
     if (!force && state.failuresByRun[runId]) {
         state.runId = runId;
+        state.loadingRunId = null;
         state.failures = state.failuresByRun[runId];
         state.view = 'failures';
         render();
         return;
     }
+    if (!force && state.loadingRunId === runId) {
+        state.view = 'loading'; // already downloading this one
+        render();
+        return;
+    }
+    state.runId = runId;
+    state.loadingRunId = runId;
+    state.note = 'Downloading artifacts & parsing failures…';
+    state.view = 'loading';
+    render();
     vscode.postMessage({ type: 'openRun', runId, force: !!force });
 }
 
@@ -36,17 +54,17 @@ window.addEventListener('message', (e) => {
             state.view = 'runs';
             render();
             break;
-        case 'loadingRun':
-            state.view = 'loading';
-            state.note = 'Downloading artifacts & parsing failures…';
-            render();
-            break;
         case 'failures':
-            state.runId = m.runId;
-            state.failures = m.failures;
+            // Always cache; only switch into the view if the user is still
+            // waiting on this run (otherwise they navigated away — cache silently).
             state.failuresByRun[m.runId] = m.failures;
-            state.view = 'failures';
-            render();
+            if (state.loadingRunId === m.runId) {
+                state.runId = m.runId;
+                state.failures = m.failures;
+                state.loadingRunId = null;
+                state.view = 'failures';
+                render();
+            }
             break;
     }
 });
@@ -84,7 +102,13 @@ function conclusionClass(run) {
 function render() {
     app.replaceChildren();
     if (state.view === 'loading') {
-        app.append(el('div', { class: 'center muted' }, state.note));
+        app.append(
+            el('div', { class: 'topbar' },
+                el('button', { class: 'ghost', onclick: showRuns }, '← Runs'),
+                el('strong', {}, state.loadingRunId ? `Loading run #${state.loadingRunId}…` : 'Loading…'),
+            ),
+        );
+        app.append(el('div', { class: 'center muted' }, `${state.note}\n(you can go back while this loads)`));
         return;
     }
     if (state.view === 'error') {
@@ -126,7 +150,7 @@ function renderFailures() {
 
     app.append(
         el('div', { class: 'topbar' },
-            el('button', { class: 'ghost', onclick: () => vscode.postMessage({ type: 'ready' }) }, '← Runs'),
+            el('button', { class: 'ghost', onclick: showRuns }, '← Runs'),
             el('strong', {}, `${fails.length} failure${fails.length === 1 ? '' : 's'} · run #${state.runId}`),
             el('button', { class: 'ghost small', onclick: () => { state.showAll = !state.showAll; render(); } },
                 state.showAll ? 'Failures only' : `Show all (${all.length})`),

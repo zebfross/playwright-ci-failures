@@ -108,7 +108,6 @@ class Panel {
         if (!repo) {
             return;
         }
-        this.post({ type: 'loadingRun', runId });
         const token = await gh.getToken();
         const failures = await gh.getRunFailures(token, repo.owner, repo.repo, runId, this.workRoot, force);
         const mapped = failures.map((f) => ({

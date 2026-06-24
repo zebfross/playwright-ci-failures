@@ -110,7 +110,12 @@ async function downloadArtifact(
         throw new Error(`Artifact ${artifactId} download failed: ${res.status}`);
     }
     const buf = Buffer.from(await res.arrayBuffer());
-    new AdmZip(buf).extractAllTo(destDir, true);
+    // Async extract so a large artifact doesn't block the extension host.
+    await new Promise<void>((resolve, reject) => {
+        new AdmZip(buf).extractAllToAsync(destDir, true, false, (err) =>
+            err ? reject(err) : resolve(),
+        );
+    });
 }
 
 // Parsed failures per run id — a completed run's artifacts never change, so
