@@ -42,6 +42,33 @@ button.small { padding: 2px 8px; font-size: 11px; }
 }
 .topbar strong { flex: 1; }
 
+/* Filter / search bar */
+.searchbar {
+    position: sticky;
+    top: 41px; /* sits just under the sticky topbar */
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    z-index: 1;
+}
+.search {
+    flex: 1;
+    padding: 5px 9px;
+    font-size: 13px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    outline: none;
+}
+.search:focus { border-color: var(--vscode-focusBorder); }
+.search::placeholder { color: var(--vscode-input-placeholderForeground); }
+.filter-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.small { font-size: 11px; }
+
 /* Runs list */
 .runs { display: flex; flex-direction: column; }
 .run {

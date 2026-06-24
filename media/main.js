@@ -2,7 +2,7 @@
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 
-let state = { repo: '', runs: [], dev: false, view: 'loading', runId: null, loadingRunId: null, failures: [], failuresByRun: {}, showAll: false, note: 'Loading…' };
+let state = { repo: '', runs: [], dev: false, view: 'loading', runId: null, loadingRunId: null, failures: [], failuresByRun: {}, showAll: false, query: '', note: 'Loading…' };
 
 // Dev-only: wipe the in-memory + on-disk + webview caches so the next open is
 // a true cold start (to feel the first-run experience).
@@ -25,6 +25,7 @@ function showRuns() {
 // loading view and ask the extension to fetch in the background.
 function openRun(runId, force) {
     state.showAll = false; // start each run on failures-only
+    state.query = ''; // and unfiltered
     if (!force && state.failuresByRun[runId]) {
         state.runId = runId;
         state.loadingRunId = null;
@@ -165,10 +166,82 @@ function renderRuns() {
     app.append(list);
 }
 
+// Space-separated terms, all must match (case-insensitive) against the test's
+// title/file/project/env/error — so "checkout dev" narrows fast.
+function matchesQuery(f, q) {
+    if (!q) return true;
+    const hay = `${f.title} ${f.file} ${f.project} ${f.env} ${f.error}`.toLowerCase();
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every((t) => hay.includes(t));
+}
+
+function renderCard(f) {
+    const card = el('div', { class: 'card' });
+    card.append(
+        el('div', { class: 'card-head' },
+            el('span', { class: f.status === 'passed' ? 'badge ok' : f.status === 'flaky' ? 'badge flaky' : 'badge fail' }, f.status),
+            f.env ? el('span', { class: 'badge env' }, f.env) : null,
+            f.project ? el('span', { class: 'badge proj' }, f.project) : null,
+            el('span', { class: 'card-title' }, f.title || '(untitled)'),
+        ),
+    );
+    if (f.file) card.append(el('div', { class: 'muted file' }, f.file));
+    if (f.error) card.append(el('pre', { class: 'err' }, f.error));
+    const media = el('div', { class: 'media' });
+    if (f.screenshot) media.append(el('img', { src: f.screenshot, loading: 'lazy' }));
+    if (f.video) {
+        const video = el('video', { src: f.video, controls: '', preload: 'metadata' });
+        const overlay = el('button', { class: 'video-overlay', onclick: () => f.videoFile && vscode.postMessage({ type: 'openFile', path: f.videoFile }) }, '▶ Open video');
+        // The webview can't always decode webm — surface a centered button
+        // when it errors (or never loads) so it's easy to find.
+        video.addEventListener('error', () => overlay.classList.add('show'));
+        setTimeout(() => { if (video.readyState === 0) overlay.classList.add('show'); }, 1500);
+        media.append(el('div', { class: 'video-wrap' }, video, overlay));
+    }
+    if (f.screenshot || f.video) card.append(media);
+    const actions = el('div', { class: 'actions' });
+    if (f.screenshotFile) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openFile', path: f.screenshotFile }) }, '🖼 Open screenshot'));
+    if (f.trace) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openTrace', path: f.trace }) }, '▶ Open trace'));
+    card.append(actions);
+    return card;
+}
+
 function renderFailures() {
     const all = state.failures;
     const fails = all.filter((f) => f.status !== 'passed');
-    const shown = state.showAll ? all : fails;
+    const base = state.showAll ? all : fails;
+
+    const grid = el('div', { class: 'failures' });
+    const count = el('span', { class: 'muted small filter-count' });
+
+    // Repaint only the grid (not the search box) so typing keeps focus + caret.
+    function paint() {
+        const q = state.query || '';
+        const shown = base.filter((f) => matchesQuery(f, q));
+        grid.replaceChildren();
+        count.textContent = q ? `${shown.length}/${base.length}` : '';
+        if (shown.length === 0) {
+            const msg = q
+                ? `No matches for “${q}”.`
+                : !state.showAll && all.length > fails.length
+                  ? `No failures 🎉  ·  ${all.length} passing — use “Show all” to review their videos`
+                  : 'Nothing to show for this run.';
+            grid.append(el('div', { class: 'center muted' }, msg));
+            return;
+        }
+        for (const f of shown) {
+            grid.append(renderCard(f));
+        }
+    }
+
+    const search = el('input', {
+        class: 'search',
+        type: 'search',
+        placeholder: 'Filter tests…  (title · file · project · env)',
+        value: state.query || '',
+        oninput: (e) => { state.query = e.target.value; paint(); },
+        // Esc clears the filter.
+        onkeydown: (e) => { if (e.key === 'Escape' && state.query) { state.query = ''; e.target.value = ''; paint(); } },
+    });
 
     app.append(
         el('div', { class: 'topbar' },
@@ -178,49 +251,10 @@ function renderFailures() {
                 state.showAll ? 'Failures only' : `Show all (${all.length})`),
             el('button', { class: 'ghost small', onclick: () => openRun(state.runId, true) }, '↻ Refresh'),
         ),
+        el('div', { class: 'searchbar' }, search, count),
     );
-
-    if (shown.length === 0) {
-        const msg = !state.showAll && all.length > fails.length
-            ? `No failures 🎉  ·  ${all.length} passing — use “Show all” to review their videos`
-            : 'Nothing to show for this run.';
-        app.append(el('div', { class: 'center muted' }, msg));
-        return;
-    }
-
-    const grid = el('div', { class: 'failures' });
-    for (const f of shown) {
-        const pass = f.status === 'passed';
-        const card = el('div', { class: 'card' });
-        card.append(
-            el('div', { class: 'card-head' },
-                el('span', { class: f.status === 'passed' ? 'badge ok' : f.status === 'flaky' ? 'badge flaky' : 'badge fail' }, f.status),
-                f.env ? el('span', { class: 'badge env' }, f.env) : null,
-                f.project ? el('span', { class: 'badge proj' }, f.project) : null,
-                el('span', { class: 'card-title' }, f.title || '(untitled)'),
-            ),
-        );
-        if (f.file) card.append(el('div', { class: 'muted file' }, f.file));
-        if (f.error) card.append(el('pre', { class: 'err' }, f.error));
-        const media = el('div', { class: 'media' });
-        if (f.screenshot) media.append(el('img', { src: f.screenshot, loading: 'lazy' }));
-        if (f.video) {
-            const video = el('video', { src: f.video, controls: '', preload: 'metadata' });
-            const overlay = el('button', { class: 'video-overlay', onclick: () => f.videoFile && vscode.postMessage({ type: 'openFile', path: f.videoFile }) }, '▶ Open video');
-            // The webview can't always decode webm — surface a centered button
-            // when it errors (or never loads) so it's easy to find.
-            video.addEventListener('error', () => overlay.classList.add('show'));
-            setTimeout(() => { if (video.readyState === 0) overlay.classList.add('show'); }, 1500);
-            media.append(el('div', { class: 'video-wrap' }, video, overlay));
-        }
-        if (f.screenshot || f.video) card.append(media);
-        const actions = el('div', { class: 'actions' });
-        if (f.screenshotFile) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openFile', path: f.screenshotFile }) }, '🖼 Open screenshot'));
-        if (f.trace) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openTrace', path: f.trace }) }, '▶ Open trace'));
-        card.append(actions);
-        grid.append(card);
-    }
     app.append(grid);
+    paint();
 }
 
 vscode.postMessage({ type: 'ready' });
