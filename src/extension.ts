@@ -75,6 +75,8 @@ class Panel {
     private readonly disposables: vscode.Disposable[] = [];
     private ready = false;
     private pendingRunId?: number;
+    private lastRunsSig = '';
+    private readonly lastStatuses = new Map<number, string>();
 
     static show(context: vscode.ExtensionContext) {
         if (Panel.current) {
@@ -140,6 +142,17 @@ class Panel {
             });
             this.disposables.push(new vscode.Disposable(() => watcher.close()));
         }
+
+        // Live updates: poll the run list while the panel is visible.
+        const pollSeconds = vscode.workspace.getConfiguration('pwci').get<number>('pollSeconds', 15);
+        if (pollSeconds > 0) {
+            const timer = setInterval(() => {
+                if (this.panel.visible) {
+                    void this.loadRuns(true);
+                }
+            }, pollSeconds * 1000);
+            this.disposables.push(new vscode.Disposable(() => clearInterval(timer)));
+        }
     }
 
     private async onMessage(m: any) {
@@ -172,31 +185,67 @@ class Panel {
         }
     }
 
-    private async loadRuns() {
+    private async loadRuns(background = false) {
         const repo = gh.detectRepo();
         if (!repo) {
-            this.post({
-                type: 'error',
-                message:
-                    'No GitHub repo detected from the workspace git remote. Set "pwci.repo" (owner/repo) in settings.',
-            });
+            if (!background) {
+                this.post({
+                    type: 'error',
+                    message:
+                        'No GitHub repo detected from the workspace git remote. Set "pwci.repo" (owner/repo) in settings.',
+                });
+            }
             return;
         }
-        this.post({ type: 'status', message: `Loading runs for ${repo.owner}/${repo.repo}…` });
-        const token = await gh.getToken();
+        if (!background) {
+            this.post({ type: 'status', message: `Loading runs for ${repo.owner}/${repo.repo}…` });
+        }
+        const token = await gh.getToken(!background); // don't pop a sign-in prompt on a background poll
         if (!token) {
-            this.post({ type: 'error', message: 'GitHub sign-in is required.' });
+            if (!background) {
+                this.post({ type: 'error', message: 'GitHub sign-in is required.' });
+            }
             return;
         }
-        const runs = await gh.listRuns(token, repo.owner, repo.repo);
+
+        let runs: gh.Run[];
+        try {
+            runs = await gh.listRuns(token, repo.owner, repo.repo);
+        } catch (e) {
+            if (!background) {
+                throw e; // surface on explicit load; ignore transient poll errors
+            }
+            return;
+        }
+
+        // Bust the cache for any run that just finished, so re-opening it is fresh.
+        for (const run of runs) {
+            const sig = run.status === 'completed' ? `done:${run.conclusion}` : run.status;
+            const prev = this.lastStatuses.get(run.id);
+            if (prev && prev !== sig && run.status === 'completed') {
+                gh.clearFailuresCache(run.id);
+                fs.rmSync(path.join(this.workRoot, `run-${run.id}`), { recursive: true, force: true });
+                this.post({ type: 'dropCache', runId: run.id });
+            }
+            this.lastStatuses.set(run.id, sig);
+        }
+
+        const runsSig = runs.map((r) => `${r.id}:${r.status}:${r.conclusion}`).join('|');
+        const changed = runsSig !== this.lastRunsSig;
+        this.lastRunsSig = runsSig;
+
         this.post({
             type: 'runs',
             repo: `${repo.owner}/${repo.repo}`,
             runs,
             dev: this.context.extensionMode === vscode.ExtensionMode.Development,
+            background,
+            changed,
         });
-        // Keep the sidebar tree in sync (e.g. populate it after the first sign-in).
-        void vscode.commands.executeCommand('pwci.refreshRuns');
+        // Keep the sidebar tree in sync, but only when something actually changed.
+        if (changed) {
+            void vscode.commands.executeCommand('pwci.refreshRuns');
+        }
     }
 
     private async loadFailures(runId: number, force = false) {

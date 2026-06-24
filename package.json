@@ -53,6 +53,11 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Workflow file name (e.g. `deploy.yml`) to filter runs by. Empty = all workflows."
+        },
+        "pwci.pollSeconds": {
+          "type": "number",
+          "default": 15,
+          "markdownDescription": "How often (in seconds) to auto-refresh the run list while the panel is visible. Set to `0` to disable live updates."
         }
       }
     }

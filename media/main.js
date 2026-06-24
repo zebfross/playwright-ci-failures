@@ -62,8 +62,15 @@ window.addEventListener('message', (e) => {
             state.repo = m.repo;
             state.runs = m.runs;
             state.dev = !!m.dev;
-            state.view = 'runs';
-            render();
+            if (!m.background) {
+                state.view = 'runs'; // initial load / explicit refresh
+                render();
+            } else if (state.view === 'runs' && m.changed) {
+                render(); // live update — only re-render the list if it changed and we're on it
+            }
+            break;
+        case 'dropCache':
+            delete state.failuresByRun[m.runId]; // a run just finished — force a fresh re-open
             break;
         case 'openRunExternal':
             openRun(m.runId); // navigation request from the SCM tree
