@@ -247,6 +247,11 @@ function failuresFromMedia(mediaDir: string): Failure[] {
         const vid = files.find((f) => f.endsWith('.webm'));
         const trace = files.find((f) => f === 'trace.zip');
         const ctx = files.find((f) => f === 'error-context.md');
+        // With video:'on', passing tests also leave a dir (just a video). Only
+        // treat a dir as a failure when it has a failure-specific artifact.
+        if (!png && !trace && !ctx) {
+            continue;
+        }
         out.push({
             file: '',
             title: dir,
