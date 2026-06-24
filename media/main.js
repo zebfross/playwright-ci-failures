@@ -166,14 +166,6 @@ function renderRuns() {
     app.append(list);
 }
 
-// Space-separated terms, all must match (case-insensitive) against the test's
-// title/file/project/env/error — so "checkout dev" narrows fast.
-function matchesQuery(f, q) {
-    if (!q) return true;
-    const hay = `${f.title} ${f.file} ${f.project} ${f.env} ${f.error}`.toLowerCase();
-    return q.toLowerCase().split(/\s+/).filter(Boolean).every((t) => hay.includes(t));
-}
-
 function renderCard(f) {
     const card = el('div', { class: 'card' });
     card.append(
@@ -212,24 +204,37 @@ function renderFailures() {
 
     const grid = el('div', { class: 'failures' });
     const count = el('span', { class: 'muted small filter-count' });
+    const empty = el('div', { class: 'center muted' });
 
-    // Repaint only the grid (not the search box) so typing keeps focus + caret.
+    // Build every card ONCE — <video> elements are expensive to instantiate, so
+    // filtering must never rebuild the DOM. Precompute each card's search
+    // haystack and just toggle `display`, which keeps typing instant.
+    const entries = base.map((f) => ({
+        node: renderCard(f),
+        hay: `${f.title} ${f.file} ${f.project} ${f.env} ${f.error}`.toLowerCase(),
+    }));
+    for (const e of entries) {
+        grid.append(e.node);
+    }
+
     function paint() {
-        const q = state.query || '';
-        const shown = base.filter((f) => matchesQuery(f, q));
-        grid.replaceChildren();
-        count.textContent = q ? `${shown.length}/${base.length}` : '';
-        if (shown.length === 0) {
-            const msg = q
-                ? `No matches for “${q}”.`
+        const terms = (state.query || '').toLowerCase().split(/\s+/).filter(Boolean);
+        let shown = 0;
+        for (const e of entries) {
+            const match = terms.every((t) => e.hay.includes(t));
+            e.node.style.display = match ? '' : 'none';
+            if (match) shown++;
+        }
+        count.textContent = state.query ? `${shown}/${entries.length}` : '';
+        if (shown === 0) {
+            empty.style.display = '';
+            empty.textContent = state.query
+                ? `No matches for “${state.query}”.`
                 : !state.showAll && all.length > fails.length
                   ? `No failures 🎉  ·  ${all.length} passing — use “Show all” to review their videos`
                   : 'Nothing to show for this run.';
-            grid.append(el('div', { class: 'center muted' }, msg));
-            return;
-        }
-        for (const f of shown) {
-            grid.append(renderCard(f));
+        } else {
+            empty.style.display = 'none';
         }
     }
 
@@ -253,7 +258,7 @@ function renderFailures() {
         ),
         el('div', { class: 'searchbar' }, search, count),
     );
-    app.append(grid);
+    app.append(grid, empty);
     paint();
 }
 
