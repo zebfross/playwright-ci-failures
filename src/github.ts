@@ -187,7 +187,7 @@ function failuresFromReport(report: any, mediaDir: string): Failure[] {
             for (const spec of suite.specs ?? []) {
                 for (const test of spec.tests ?? []) {
                     const result = (test.results ?? []).slice(-1)[0];
-                    if (!result || result.status === 'passed' || result.status === 'skipped') {
+                    if (!result || result.status === 'skipped') {
                         continue;
                     }
                     const atts = result.attachments ?? [];
@@ -196,9 +196,12 @@ function failuresFromReport(report: any, mediaDir: string): Failure[] {
                         title: [...prefix, spec.title].filter(Boolean).join(' › '),
                         project: test.projectName ?? '',
                         status: result.status,
-                        error: stripAnsi(
-                            `${result.error?.message ?? ''}\n${result.error?.stack ?? ''}`,
-                        ).trim(),
+                        error:
+                            result.status === 'passed'
+                                ? ''
+                                : stripAnsi(
+                                      `${result.error?.message ?? ''}\n${result.error?.stack ?? ''}`,
+                                  ).trim(),
                         screenshot: resolveAttachment(atts, 'screenshot', mediaDir),
                         video: resolveAttachment(atts, 'video', mediaDir),
                         trace: resolveAttachment(atts, 'trace', mediaDir),
@@ -247,20 +250,23 @@ function failuresFromMedia(mediaDir: string): Failure[] {
         const vid = files.find((f) => f.endsWith('.webm'));
         const trace = files.find((f) => f === 'trace.zip');
         const ctx = files.find((f) => f === 'error-context.md');
-        // With video:'on', passing tests also leave a dir (just a video). Only
-        // treat a dir as a failure when it has a failure-specific artifact.
-        if (!png && !trace && !ctx) {
+        const failed = Boolean(png || trace || ctx);
+        // Keep passing tests (just a video) so they can be viewed via "show all";
+        // only skip dirs that have nothing useful.
+        if (!failed && !vid) {
             continue;
         }
         out.push({
             file: '',
             title: dir,
             project: '',
-            status: 'failed',
-            error: ctx
-                ? '(no JSON report on this run — showing the page snapshot)\n\n' +
-                  fs.readFileSync(path.join(full, ctx), 'utf8').slice(0, 4000)
-                : '(no error detail — this run predates the JSON reporter)',
+            status: failed ? 'failed' : 'passed',
+            error: !failed
+                ? ''
+                : ctx
+                  ? '(no JSON report on this run — showing the page snapshot)\n\n' +
+                    fs.readFileSync(path.join(full, ctx), 'utf8').slice(0, 4000)
+                  : '(no error detail — this run predates the JSON reporter)',
             screenshot: png ? path.join(full, png) : undefined,
             video: vid ? path.join(full, vid) : undefined,
             trace: trace ? path.join(full, trace) : undefined,

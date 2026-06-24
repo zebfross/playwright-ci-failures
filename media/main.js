@@ -2,11 +2,12 @@
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 
-let state = { repo: '', runs: [], view: 'loading', runId: null, failures: [], failuresByRun: {}, note: 'Loading…' };
+let state = { repo: '', runs: [], view: 'loading', runId: null, failures: [], failuresByRun: {}, showAll: false, note: 'Loading…' };
 
 // Render a run's failures from the webview-side cache when we have them, so
 // going back-and-forth between runs is instant; otherwise ask the extension.
 function openRun(runId, force) {
+    state.showAll = false; // start each run on failures-only
     if (!force && state.failuresByRun[runId]) {
         state.runId = runId;
         state.failures = state.failuresByRun[runId];
@@ -119,23 +120,35 @@ function renderRuns() {
 }
 
 function renderFailures() {
+    const all = state.failures;
+    const fails = all.filter((f) => f.status !== 'passed');
+    const shown = state.showAll ? all : fails;
+
     app.append(
         el('div', { class: 'topbar' },
             el('button', { class: 'ghost', onclick: () => vscode.postMessage({ type: 'ready' }) }, '← Runs'),
-            el('strong', {}, `${state.failures.length} failure${state.failures.length === 1 ? '' : 's'} · run #${state.runId}`),
+            el('strong', {}, `${fails.length} failure${fails.length === 1 ? '' : 's'} · run #${state.runId}`),
+            el('button', { class: 'ghost small', onclick: () => { state.showAll = !state.showAll; render(); } },
+                state.showAll ? 'Failures only' : `Show all (${all.length})`),
             el('button', { class: 'ghost small', onclick: () => openRun(state.runId, true) }, '↻ Refresh'),
         ),
     );
-    if (state.failures.length === 0) {
-        app.append(el('div', { class: 'center muted' }, 'No failures found in this run’s artifacts. 🎉'));
+
+    if (shown.length === 0) {
+        const msg = !state.showAll && all.length > fails.length
+            ? `No failures 🎉  ·  ${all.length} passing — use “Show all” to review their videos`
+            : 'Nothing to show for this run.';
+        app.append(el('div', { class: 'center muted' }, msg));
         return;
     }
+
     const grid = el('div', { class: 'failures' });
-    for (const f of state.failures) {
+    for (const f of shown) {
+        const pass = f.status === 'passed';
         const card = el('div', { class: 'card' });
         card.append(
             el('div', { class: 'card-head' },
-                el('span', { class: 'badge fail' }, f.status),
+                el('span', { class: pass ? 'badge ok' : 'badge fail' }, f.status),
                 f.project ? el('span', { class: 'badge proj' }, f.project) : null,
                 el('span', { class: 'card-title' }, f.title || '(untitled)'),
             ),
