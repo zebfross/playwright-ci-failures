@@ -119,7 +119,7 @@ function render() {
                 el('strong', {}, state.loadingRunId ? `Loading run #${state.loadingRunId}…` : 'Loading…'),
             ),
         );
-        app.append(el('div', { class: 'center muted' }, `${state.note}\n(you can go back while this loads)`));
+        app.append(el('div', { class: 'center muted' }, state.note));
         return;
     }
     if (state.view === 'error') {
