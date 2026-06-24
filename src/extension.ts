@@ -75,8 +75,12 @@ class Panel {
                 await this.loadFailures(m.runId, !!m.force);
             } else if (m.type === 'openTrace') {
                 this.openTrace(m.path);
+            } else if (m.type === 'openFile' && m.path) {
+                // Open the webm/png in the OS default app (browser/player) —
+                // the webview can't always decode webm inline.
+                await vscode.env.openExternal(vscode.Uri.file(m.path));
             } else if (m.type === 'openUrl' && m.url) {
-                vscode.env.openExternal(vscode.Uri.parse(m.url));
+                await vscode.env.openExternal(vscode.Uri.parse(m.url));
             }
         } catch (e: any) {
             this.post({ type: 'error', message: e?.message ?? String(e) });
@@ -111,6 +115,9 @@ class Panel {
             ...f,
             screenshot: this.uri(f.screenshot),
             video: this.uri(f.video),
+            // keep fs paths too so the webview can open them externally
+            videoFile: f.video,
+            screenshotFile: f.screenshot,
             // trace stays an fs path — opened via `npx playwright show-trace`
         }));
         this.post({ type: 'failures', runId, failures: mapped });

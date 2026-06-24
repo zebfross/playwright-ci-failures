@@ -160,7 +160,9 @@ function renderFailures() {
         if (f.video) media.append(el('video', { src: f.video, controls: '', preload: 'metadata' }));
         if (f.screenshot || f.video) card.append(media);
         const actions = el('div', { class: 'actions' });
-        if (f.trace) actions.append(el('button', { onclick: () => vscode.postMessage({ type: 'openTrace', path: f.trace }) }, '▶ Open trace'));
+        if (f.videoFile) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openFile', path: f.videoFile }) }, '🎞 Open video'));
+        if (f.screenshotFile) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openFile', path: f.screenshotFile }) }, '🖼 Open screenshot'));
+        if (f.trace) actions.append(el('button', { class: 'ghost small', onclick: () => vscode.postMessage({ type: 'openTrace', path: f.trace }) }, '▶ Open trace'));
         card.append(actions);
         grid.append(card);
     }
