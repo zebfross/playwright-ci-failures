@@ -81,6 +81,11 @@ class Panel {
                 await vscode.env.openExternal(vscode.Uri.file(m.path));
             } else if (m.type === 'openUrl' && m.url) {
                 await vscode.env.openExternal(vscode.Uri.parse(m.url));
+            } else if (m.type === 'clearCache') {
+                gh.clearFailuresCache();
+                fs.rmSync(this.workRoot, { recursive: true, force: true });
+                fs.mkdirSync(this.workRoot, { recursive: true });
+                await this.loadRuns();
             }
         } catch (e: any) {
             this.post({ type: 'error', message: e?.message ?? String(e) });
@@ -100,7 +105,12 @@ class Panel {
         this.post({ type: 'status', message: `Loading runs for ${repo.owner}/${repo.repo}…` });
         const token = await gh.getToken();
         const runs = await gh.listRuns(token, repo.owner, repo.repo);
-        this.post({ type: 'runs', repo: `${repo.owner}/${repo.repo}`, runs });
+        this.post({
+            type: 'runs',
+            repo: `${repo.owner}/${repo.repo}`,
+            runs,
+            dev: this.context.extensionMode === vscode.ExtensionMode.Development,
+        });
     }
 
     private async loadFailures(runId: number, force = false) {

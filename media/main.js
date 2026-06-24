@@ -2,7 +2,17 @@
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 
-let state = { repo: '', runs: [], view: 'loading', runId: null, loadingRunId: null, failures: [], failuresByRun: {}, showAll: false, note: 'Loading…' };
+let state = { repo: '', runs: [], dev: false, view: 'loading', runId: null, loadingRunId: null, failures: [], failuresByRun: {}, showAll: false, note: 'Loading…' };
+
+// Dev-only: wipe the in-memory + on-disk + webview caches so the next open is
+// a true cold start (to feel the first-run experience).
+function clearCache() {
+    state.failuresByRun = {};
+    state.note = 'Clearing cache…';
+    state.view = 'loading';
+    render();
+    vscode.postMessage({ type: 'clearCache' });
+}
 
 // Back to the runs list — renders the already-loaded list instantly (no refetch).
 function showRuns() {
@@ -51,6 +61,7 @@ window.addEventListener('message', (e) => {
         case 'runs':
             state.repo = m.repo;
             state.runs = m.runs;
+            state.dev = !!m.dev;
             state.view = 'runs';
             render();
             break;
@@ -124,6 +135,7 @@ function renderRuns() {
     app.append(
         el('div', { class: 'topbar' },
             el('strong', {}, state.repo),
+            state.dev ? el('button', { class: 'ghost small', onclick: clearCache }, '🧹 Clear cache') : null,
             el('button', { class: 'ghost', onclick: () => vscode.postMessage({ type: 'ready' }) }, '⟳ Refresh'),
         ),
     );
